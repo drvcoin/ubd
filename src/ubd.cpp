@@ -9,6 +9,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <thread>
 
 static int ubd_read(int fd, void * buffer, size_t size)
 {
@@ -42,12 +43,26 @@ static int ubd_write(int fd, void * buffer, size_t size)
   return 0;
 }
 
+bool ubd_disconnect(const char * nbdPath)
+{
+  int nbd = open(nbdPath, O_RDWR);
+  if (nbd == -1)
+  {
+    fprintf(stderr, "Failed to open \"%s\": %s\n", nbdPath, strerror(errno));
+    return false;
+  }
+
+  int err = ioctl(nbd, NBD_DISCONNECT);
+  fprintf(stderr, "nbd device '%s' disconnected with code %d\n",nbdPath, err);
+  if (err == -1)
+  {
+    fprintf(stderr, "%s\n", strerror(errno));
+  }
+  return true;
+}
+
 int ubd_register(const char * nbdPath, size_t size, struct ubd_operations * operations, void * context)
 {
-  uint64_t blockSize = 514*1024;
-
-  printf("Initializing %s with size=%ld blsize=%ld blocks=%ld\n", nbdPath, size, blockSize, size/blockSize);
-
   if (nbdPath == NULL)
   {
     fprintf(stderr, "Invalid argument: nbdPath\n");
@@ -66,6 +81,9 @@ int ubd_register(const char * nbdPath, size_t size, struct ubd_operations * oper
     return -1;
   }
 
+  uint64_t blockSize = 514*1024;
+
+  printf("Initializing %s with size=%ld blsize=%ld blocks=%ld\n", nbdPath, size, blockSize, size/blockSize);
   int sv[2] = {0};
 
   int err = socketpair(AF_UNIX, SOCK_STREAM, 0, sv);
@@ -88,10 +106,8 @@ int ubd_register(const char * nbdPath, size_t size, struct ubd_operations * oper
   printf("NBD_SET_SIZE_BLOCKS(%ld)=%d\n", size / blockSize, err);
   err = ioctl(nbd, NBD_CLEAR_SOCK);
 
-  if (!fork())
-  {
-    close(childfd);
-
+  std::thread th1([nbd, parentfd]{
+    int err;
     if(ioctl(nbd, NBD_SET_SOCK, parentfd) == -1)
     {
       fprintf(stderr, "Failed to set socket handle: %s\n", strerror(errno));
@@ -115,85 +131,98 @@ int ubd_register(const char * nbdPath, size_t size, struct ubd_operations * oper
     ioctl(nbd, NBD_CLEAR_QUE);
     ioctl(nbd, NBD_CLEAR_SOCK);
     close(parentfd);
+  });
+  th1.detach();
 
-    exit(0);
-  }
+  std::thread th2([childfd, nbdPath, size, operations, context = std::move(context)]() mutable {
 
-  int htmp = open(nbdPath, O_RDONLY);
-  close(htmp);
+    int htmp = open(nbdPath, O_RDONLY);
+    close(htmp);
 
-  close(parentfd);
+    struct nbd_request request = {0};
+    struct nbd_reply reply = {0};
 
-  struct nbd_request request = {0};
-  struct nbd_reply reply = {0};
+    reply.magic = __be32_to_cpu(NBD_REPLY_MAGIC);
 
-  reply.magic = __be32_to_cpu(NBD_REPLY_MAGIC);
-
-  int bytesRead;
-  while ((bytesRead = read(childfd, &request, sizeof(request))) > 0)
-  {
-    memcpy(reply.handle, request.handle, sizeof(reply.handle));
-    reply.error = 0;
-
-    size_t len = __be32_to_cpu(request.len);
-    size_t from = __be64_to_cpu(request.from);
-
-    switch(__be32_to_cpu(request.type))
+    int bytesRead;
+    while ((bytesRead = read(childfd, &request, sizeof(request))) > 0)
     {
-      case NBD_CMD_READ:
+      memcpy(reply.handle, request.handle, sizeof(reply.handle));
+      reply.error = 0;
+
+      size_t len = __be32_to_cpu(request.len);
+      size_t from = __be64_to_cpu(request.from);
+
+      switch(__be32_to_cpu(request.type))
       {
-        void * buffer = malloc(len);
-        reply.error = __cpu_to_be32(operations->read(buffer, len, from, context));
-        ubd_write(childfd, &reply, sizeof(struct nbd_reply));
-        ubd_write(childfd, buffer, len);
-        free(buffer);
-        break;
-      }
-      case NBD_CMD_WRITE:
-      {
-        void * buffer = malloc(len);
-        ubd_read(childfd, buffer, len);
-        reply.error = __cpu_to_be32(operations->write(buffer, len, from, context));
-        free(buffer);
-        ubd_write(childfd, &reply, sizeof(struct nbd_reply));
-        break;
-      }
-      case NBD_CMD_DISC:
-      {
-        if (operations->disc)
+        case NBD_CMD_READ:
         {
-          operations->disc(context);
+          void * buffer = malloc(len);
+          reply.error = __cpu_to_be32(operations->read(buffer, len, from, context));
+          ubd_write(childfd, &reply, sizeof(struct nbd_reply));
+          ubd_write(childfd, buffer, len);
+          free(buffer);
+          break;
         }
-        return 0;
-      }
+        case NBD_CMD_WRITE:
+        {
+          void * buffer = malloc(len);
+          ubd_read(childfd, buffer, len);
+          reply.error = __cpu_to_be32(operations->write(buffer, len, from, context));
+          free(buffer);
+          ubd_write(childfd, &reply, sizeof(struct nbd_reply));
+          break;
+        }
+        case NBD_CMD_DISC:
+        {
+          close(childfd);
+          if (operations->disc)
+          {
+            operations->disc(context);
+          }
+          if (operations->cleanup)
+          {
+            operations->cleanup(context);
+          }
+          return 0;
+        }
 #ifdef NBD_FLAG_SEND_FLUSH
-      case NBD_CMD_FLUSH:
-      {
-        if (operations->flush)
+        case NBD_CMD_FLUSH:
         {
-          reply.error = __cpu_to_be32(operations->flush(context));
+          if (operations->flush)
+          {
+            reply.error = __cpu_to_be32(operations->flush(context));
+          }
+          ubd_write(childfd, &reply, sizeof(struct nbd_reply));
+          break;
         }
-        ubd_write(childfd, &reply, sizeof(struct nbd_reply));
-        break;
-      }
 #endif
 #ifdef NBD_FLAG_SEND_TRIM
-      case NBD_CMD_TRIM:
-      {
-        if (operations->trim)
+        case NBD_CMD_TRIM:
         {
-          reply.error = __cpu_to_be32(operations->trim(from, len, context));
+          if (operations->trim)
+          {
+            reply.error = __cpu_to_be32(operations->trim(from, len, context));
+          }
+          ubd_write(childfd, &reply, sizeof(struct nbd_reply));
+          break;
         }
-        ubd_write(childfd, &reply, sizeof(struct nbd_reply));
-        break;
-      }
 #endif
+      }
     }
-  }
-  if (bytesRead == -1)
-  {
-    fprintf(stderr, "Error reading from socket: %s\n", strerror(errno));
-  }
-  close(childfd);
+    if (bytesRead == -1)
+    {
+      fprintf(stderr, "Error reading from socket: %s\n", strerror(errno));
+    }
+
+    close(childfd);
+    if (operations->cleanup)
+    {
+      operations->cleanup(context);
+    }
+  });
+
+  th2.detach();
+
   return 0;
 }

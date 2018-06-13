@@ -11,6 +11,8 @@ struct ubd_operations
   void (*disc)(void * context);
   int (*flush)(void * context);
   int (*trim)(size_t start, size_t size, void * context);
+  void (*cleanup)(void * context);
 };
 
 int ubd_register(const char * path, size_t size, struct ubd_operations * operations, void * context);
+bool ubd_disconnect(const char * nbdPath);
