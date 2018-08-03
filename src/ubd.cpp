@@ -45,7 +45,8 @@ static int ubd_write(int fd, void * buffer, size_t size)
 
 bool ubd_disconnect(const char * nbdPath)
 {
-  int nbd = open(nbdPath, O_RDWR);
+  int nbd = open(nbdPath, O_WRONLY);
+
   if (nbd == -1)
   {
     fprintf(stderr, "Failed to open \"%s\": %s\n", nbdPath, strerror(errno));
@@ -54,10 +55,13 @@ bool ubd_disconnect(const char * nbdPath)
 
   int err = ioctl(nbd, NBD_DISCONNECT);
   fprintf(stderr, "nbd device '%s' disconnected with code %d\n",nbdPath, err);
+
   if (err == -1)
   {
     fprintf(stderr, "%s\n", strerror(errno));
   }
+
+  close(nbd);
   return true;
 }
 
@@ -131,20 +135,17 @@ int ubd_register(const char * nbdPath, size_t size, struct ubd_operations * oper
     ioctl(nbd, NBD_CLEAR_QUE);
     ioctl(nbd, NBD_CLEAR_SOCK);
     close(parentfd);
+    close(nbd);
   });
   th1.detach();
 
   std::thread th2([childfd, nbdPath, size, operations, context = std::move(context)]() mutable {
-
-    int htmp = open(nbdPath, O_RDONLY);
-    close(htmp);
-
     struct nbd_request request = {0};
     struct nbd_reply reply = {0};
+    int bytesRead;
 
     reply.magic = __be32_to_cpu(NBD_REPLY_MAGIC);
 
-    int bytesRead;
     while ((bytesRead = read(childfd, &request, sizeof(request))) > 0)
     {
       memcpy(reply.handle, request.handle, sizeof(reply.handle));
