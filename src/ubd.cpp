@@ -104,6 +104,10 @@ int ubd_register(const char * nbdPath, size_t size, struct ubd_operations * oper
 
   blockSize = 4096;
 
+  // TODO: pass timeout from caller
+  err = ioctl(nbd, NBD_SET_TIMEOUT, 300);
+  printf("NBD_SET_TIMEOUT(%d)=%d\n", 300, err);
+
   err = ioctl(nbd, NBD_SET_BLKSIZE, blockSize);
   printf("NBD_SET_BLKSIZE(%ld)=%d\n", blockSize, err);
   err = ioctl(nbd, NBD_SET_SIZE_BLOCKS, size / blockSize);
