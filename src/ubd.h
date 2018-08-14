@@ -3,6 +3,7 @@
 #include <linux/nbd.h>
 #include <linux/types.h>
 #include <sys/types.h>
+#include <stdint.h>
 
 struct ubd_operations
 {
@@ -14,5 +15,5 @@ struct ubd_operations
   void (*cleanup)(void * context);
 };
 
-int ubd_register(const char * path, size_t size, struct ubd_operations * operations, void * context);
+int ubd_register(const char * path, size_t size, uint32_t timeout, struct ubd_operations * operations, void * context);
 bool ubd_disconnect(const char * nbdPath);

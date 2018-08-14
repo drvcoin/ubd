@@ -65,7 +65,7 @@ bool ubd_disconnect(const char * nbdPath)
   return true;
 }
 
-int ubd_register(const char * nbdPath, size_t size, struct ubd_operations * operations, void * context)
+int ubd_register(const char * nbdPath, size_t size, uint32_t timeout, struct ubd_operations * operations, void * context)
 {
   if (nbdPath == NULL)
   {
@@ -105,8 +105,11 @@ int ubd_register(const char * nbdPath, size_t size, struct ubd_operations * oper
   blockSize = 4096;
 
   // TODO: pass timeout from caller
-  err = ioctl(nbd, NBD_SET_TIMEOUT, 300);
-  printf("NBD_SET_TIMEOUT(%d)=%d\n", 300, err);
+  if (timeout > 1000)
+  {
+    err = ioctl(nbd, NBD_SET_TIMEOUT, (timeout - 1) / 1000 + 1);
+    printf("NBD_SET_TIMEOUT(%d)=%d\n", (timeout - 1) / 1000 + 1, err);
+  }
 
   err = ioctl(nbd, NBD_SET_BLKSIZE, blockSize);
   printf("NBD_SET_BLKSIZE(%ld)=%d\n", blockSize, err);
