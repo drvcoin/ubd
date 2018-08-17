@@ -20,19 +20,26 @@
 # SOFTWARE.
 # 
 
-ROOT = $(realpath ..)
+ifeq ($(ROOT),)
+$(error "Please define ROOT variable to point to the repository's root folder")
+endif
 
-TARGETLIB = ubd
+OUTDIR = $(ROOT)/out
+BINDIR = $(OUTDIR)/bin
 
-include $(ROOT)/Config.mk
+ifneq ($(TARGETLIB),)
+TARGETNAME = $(TARGETLIB)
+TARGETFILENAME = $(TARGETNAME).a
+else
+ifneq ($(TARGETSO),)
+TARGETNAME = $(TARGETSO)
+TARGETFILENAME = $(TARGETNAME).so
+else
+TARGETNAME = $(TARGETEXE)
+TARGETFILENAME = $(TARGETNAME)
+endif
+endif
 
-HEADERS = \
-  ubd.h
+OBJDIR = $(OUTDIR)/obj/$(TARGETNAME)
 
-SRCS = \
-  ubd.cpp
-
-CCFLAGS = -std=c++14 -msse4.1
-LDFLAGS = 
-
-include $(ROOT)/Cpp.mk
+INCDIR = $(OUTDIR)/inc
