@@ -228,6 +228,8 @@ int ubd_register(const char * nbdPath, size_t size, uint32_t timeout, struct ubd
     {
       operations->cleanup(context);
     }
+
+    return 0;
   });
 
   th2.detach();
