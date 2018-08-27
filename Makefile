@@ -1,5 +1,7 @@
 #
-# Copyright (c) 2018 Drive Foundation
+# MIT License
+#
+# Copyright (c) 2018 drvcoin
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -19,31 +21,20 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 #
+# =============================================================================
+#
 
-ifeq ($(ROOT),)
-$(error "Please define ROOT variable to point to the repository's root folder")
-endif
+ROOT := $(realpath .)
+include $(ROOT)/Config.mk
 
-OUTDIR = $(ROOT)/out
-BINDIR = $(OUTDIR)/bin
-CFGDIR = $(OUTDIR)/cfg
-PKGDIR = $(OUTDIR)/package
+DIRS = \
+	src
 
-ifneq ($(TARGETLIB),)
-TARGETNAME = $(TARGETLIB)
-TARGETFILENAME = $(TARGETNAME).a
-else
-ifneq ($(TARGETSO),)
-TARGETNAME = $(TARGETSO)
-TARGETFILENAME = $(TARGETNAME).so
-else
-TARGETNAME = $(TARGETEXE)
-TARGETFILENAME = $(TARGETNAME)
-endif
-endif
+.PHONY: all clean $(DIRS)
 
-OBJDIR = $(OUTDIR)/obj/$(TARGETNAME)
-INCDIR = $(OUTDIR)/inc
-LIBDIR = $(BLDDIR)/lib
+all: $(DIRS)
 
-BUILD_ROOT = $(ROOT)/build
+clean: $(DIRS)
+
+$(DIRS):
+	@$(MAKE) -C $@ $(MAKECMDGOALS) $$([ -f $@/Makefile.mk ] && echo -n "-f Makefile.mk")
