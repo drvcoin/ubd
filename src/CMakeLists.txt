@@ -24,17 +24,17 @@
 # =============================================================================
 #
 
-ROOT := $(realpath .)
-include $(ROOT)/Config.mk
+cmake_minimum_required(VERSION 3.1)
 
-DIRS = \
-	src
+project(ubd)
 
-.PHONY: all clean $(DIRS)
+set(ROOT ${PROJECT_SOURCE_DIR}/..)
 
-all: $(DIRS)
+include(${ROOT}/Config.cmake)
 
-clean: $(DIRS)
+add_library(
+  ubd STATIC
 
-$(DIRS):
-	@$(MAKE) -C $@ $(MAKECMDGOALS) $$([ -f $@/Makefile.mk ] && echo -n "-f Makefile.mk")
+  ubd.cpp
+)
+

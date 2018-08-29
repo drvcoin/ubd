@@ -53,4 +53,11 @@ dkms.conf
 
 # Output folder
 out/*
+.out
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
 
